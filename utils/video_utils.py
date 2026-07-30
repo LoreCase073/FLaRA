@@ -20,7 +20,6 @@ def build_eval_transforms(frame_size=256, mean=(0.485, 0.456, 0.406), std=(0.229
     """Build standard evaluation transforms."""
     return A.Compose([
         A.Resize(frame_size, frame_size, interpolation=cv2.INTER_LINEAR),
-        A.CenterCrop(frame_size, frame_size),
         A.Normalize(mean=list(mean), std=list(std)),
         ToTensorV2(),
     ])
@@ -76,8 +75,7 @@ def extract_sliding_windows(
             if total_frames >= num_frames:
                 frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
                 frames = vr.get_batch(frame_indices.tolist()).asnumpy()
-                processed = [transform(image=f)['image'] for f in frames]
-                clip = torch.stack(processed, dim=0)
+                clip = transform(images=frames)['images']
                 del vr
                 return [clip], video_fps, total_frames
             else:
@@ -106,8 +104,8 @@ def extract_sliding_windows(
         all_frames_raw = vr.get_batch(sorted_unique).asnumpy()
         del vr
 
-        # --- Transform each unique frame once ---
-        transformed = [transform(image=f)['image'] for f in all_frames_raw]
+        # --- Transform all unique frames in one call ---
+        transformed = transform(images=all_frames_raw)['images']
         del all_frames_raw
 
         # --- Assemble clips from pre-transformed frames ---
