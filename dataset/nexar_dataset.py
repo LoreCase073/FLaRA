@@ -7,7 +7,7 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import cv2
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 from .dataset_utils import (
     DataValidator, FrameProcessor,
@@ -232,7 +232,7 @@ class NexarDataset(torch.utils.data.Dataset):
         interp_method = self.DEFAULT_CONFIG['INTERPOLATION_MAPPING'][self.resampling]
 
         if self.split == 'train':
-            self.transform = A.ReplayCompose([
+            self.transform = A.Compose([
                 A.VerticalFlip(p=0.2),
 
                 A.RandomBrightnessContrast(p=0.5),
@@ -246,11 +246,10 @@ class NexarDataset(torch.utils.data.Dataset):
                 A.RandomSnow(p=0.2),
                 A.RandomShadow(p=0.2),
 
-                A.MotionBlur(blur_limit=3, p=0.2),
+                A.MotionBlur(blur_range=(3, 3), p=0.2),
                 A.GaussNoise(p=0.2),
 
                 A.Resize(self.frame_size, self.frame_size, interpolation=interp_method),
-                A.CenterCrop(self.frame_size, self.frame_size),
                 A.Normalize(mean=mean_list, std=std_list),
                 ToTensorV2(),
             ], seed=self.seed)
@@ -258,7 +257,6 @@ class NexarDataset(torch.utils.data.Dataset):
             # Validation/test: deterministic transforms
             self.transform = A.Compose([
                 A.Resize(self.frame_size, self.frame_size, interpolation=interp_method),
-                A.CenterCrop(self.frame_size, self.frame_size),
                 A.Normalize(mean=mean_list, std=std_list),
                 ToTensorV2(),
             ], seed=self.seed)
@@ -455,8 +453,7 @@ class NexarDataset(torch.utils.data.Dataset):
 
             # Apply transformations
             try:
-                processed_frames = self._apply_transforms_to_frames(frames)
-                video_tensor = torch.stack(processed_frames, dim=0)  # (T, C, H, W)
+                video_tensor = self.transform(images=frames)['images']  # (T, C, H, W)
 
                 # Final validation
                 if video_tensor.numel() == 0:
@@ -476,41 +473,6 @@ class NexarDataset(torch.utils.data.Dataset):
                     pass
             # Re-raise the error to be caught by __getitem__
             raise e
-
-
-
-    def _apply_transforms_to_frames(self, frames: np.ndarray) -> List[torch.Tensor]:
-        """
-        Apply transformations to video frames.
-
-        Args:
-            frames: Array of frames with shape (T, H, W, C)
-
-        Returns:
-            List of transformed frame tensors
-        """
-        processed_frames = []
-
-        if self.split == 'train':
-            # Apply consistent augmentation to all frames
-            first_frame_result = self.transform(image=frames[0])
-            processed_frames.append(first_frame_result['image'])
-
-            # Replay the same augmentation on remaining frames
-            for frame in frames[1:]:
-                replayed_result = A.ReplayCompose.replay(
-                    first_frame_result['replay'],
-                    image=frame
-                )
-                processed_frames.append(replayed_result['image'])
-        else:
-            # Apply deterministic transform to each frame
-            for frame in frames:
-                transformed = self.transform(image=frame)
-                processed_frames.append(transformed['image'])
-
-        return processed_frames
-
 
     @staticmethod
     def collate_fn(batch):
